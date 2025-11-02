@@ -1,169 +1,175 @@
-This is an early dev version — not plug-and-play yet. You’ll need to know your way around Docker networks and storage mapping.
-
-
-# 🧩 AnythingLLM MCP HTTP Bridge  
-
-**Lightweight HTTP bridge for AnythingLLM to connect multiple local MCP servers securely via Docker.**  
-A clean, modular, and safe way to run multiple MCP servers without Docker-in-Docker or direct process spawning.  
-
-![Architecture Diagram](https://user-images.githubusercontent.com/0000000/placeholder-diagram.png)
+# 🧩 AnythingLLM Local MCP Framework
+A modular, local plugin system that enables **AnythingLLM** to communicate with multiple **MCP servers** running in isolated Docker containers.  
+It provides a single, secure HTTP access point while keeping every MCP fully sandboxed and independent.
 
 ---
 
-## 🚀 Overview  
+## 🚀 Overview
 
-This bridge allows **AnythingLLM** to communicate with multiple **MCP servers** inside isolated Docker containers.  
-It provides a single, secure HTTP entry point while keeping each MCP fully sandboxed.  
+This framework extends AnythingLLM with a **Claude-like local MCP environment**, built entirely with Docker containers.
 
-### ✅ Key Features  
-- 🔒 **Safe & clean:** No host or Docker-in-Docker access.  
-- 🧱 **Modular:** Each MCP runs in its own container with a small FastAPI server.  
-- 🌐 **Bridge-controlled:** AnythingLLM only talks to the bridge (`mini-bridge`), never to the MCPs directly.  
-- ⚙️ **Dynamic registry:** MCP servers are auto-loaded from `mcp_registry.json`.  
-- ♻️ **Auto reload:** The bridge reloads configuration changes live without restarting containers.  
-- 🕒 **Example MCPs:** Includes a `Dummy-MCP` for testing and a working `MCP-Time` module returning system time.  
+### ✨ Features
+- **Safe & clean:** No host or Docker-in-Docker access.
+- **Modular:** Each MCP runs in its own lightweight FastAPI container.
+- **Bridge-controlled:** AnythingLLM communicates only with the `mini-bridge`, never directly with MCPs.
+- **Dynamic registry:** MCP servers are auto-loaded from `mcp_registry.json`.
+- **Auto reload:** Configuration changes are applied live – no container restart required.
+- **Example MCPs:** Includes `Dummy-MCP` (handshake test) and a working `MCP-Time` module returning system time.
 
 ---
 
-## 🧠 Architecture  
+## 🧠 Architecture Diagram
 
-```
-───────────────────────────────
-Docker Network: test-net
-───────────────────────────────
+```text
+───────────────────────────────────────────────
+Docker Network: danny-ai-net
+───────────────────────────────────────────────
 │
 ├─ anythingllm  (Port 3001)
-│     ↳ Main app – talks only to mini-bridge
+│     ↳ Main app (UI + chat logic)
+│     ↳ Sends all queries → mini-bridge
 │
 ├─ mini-bridge  (Port 4100)
-│     ↳ Forwards JSON-RPC requests to registered MCPs
-│     ↳ Reloads mcp_registry.json dynamically
+│     ↳ Central gateway between AnythingLLM and all MCPs
+│     ↳ Routes requests via Decision Model
+│     ↳ Auto-reloads mcp_registry.json dynamically
 │
-├─ dummy-mcp    (Port 4200)
-│     ↳ JSON-RPC test MCP returning handshake info
+│     Workflow:
+│        User → AnythingLLM → mini-bridge
+│              ├─→ Decision-Agent (/route)
+│              │      ↳ Decides which MCP to call
+│              │      ↳ Returns JSON { "tool": "time" }
+│              └─→ Forwards to chosen MCP via MCP-Hub
 │
-└─ mcp-time     (Port 4210)
-      ↳ Returns current UTC time
-───────────────────────────────
+├─ decision-agent (prompt_injector)  (Port 4300)
+│     ↳ Lightweight model (Gemma 270M)
+│     ↳ Analyses prompt context
+│     ↳ Decides when to trigger MCP calls
+│     ↳ Responds with structured tool decision
+│
+├─ mcp-hub  (Port 4400)
+│     ↳ Central registry + router for all MCP modules
+│     ↳ Provides endpoints:
+│          • /list – list all MCPs
+│          • /status/<id> – health check
+│          • /route – forward via hub
+│
+├─ dummy-mcp  (Port 4200)
+│     ↳ Test MCP – returns handshake / status info
+│
+├─ mcp-time  (Port 4210)
+│     ↳ Returns current UTC or local time via JSON-RPC
+│
+└─ (future) mcp-docs / mcp-weather / ...
+      ↳ Extend system modularly – new MCPs auto-register in hub
+───────────────────────────────────────────────
+│
+└─ Dual Model Flow:
+       Decision Model  🧭 (Gemma 270M) → Tool choice
+       Main Model      🧠 (Gemma 12B / DeepSeek 8B) → Reasoning + response
+───────────────────────────────────────────────
 ```
 
 ---
 
-## ⚙️ Quick Setup  
+## ⚙️ File Overview
 
-```bash
-git clone https://github.com/yourname/mcp-bridge-stack.git
-cd mcp-bridge-stack
-docker compose up --build
+### `mini_bridge.py`
+Core gateway component forwarding AnythingLLM requests to the appropriate MCP.
+
+```python
+REGISTRY_PATH = "/app/config/mcp_registry.json"
+CHECK_INTERVAL = 3  # seconds for auto reload
 ```
 
-Bridge log output:  
-```
-[Bridge] Registry reloaded: ['dummy', 'time']
-[Bridge] Default route → dummy (200)
-```
+This file dynamically loads all active MCP servers from `config/mcp_registry.json`.
 
-Then open AnythingLLM → MCP Settings →  
-Add new server: `http://mini-bridge:4100`
+**Decision forwarding:**
+```python
+decision = await client.post("http://decision-agent:4300/route", json=payload)
+route = decision.json().get("tool", "dummy")  # fallback
+```
+This defines how the bridge communicates with the Decision-Agent (port 4300 as example).
 
 ---
 
-## 📜 MCP Registry Example  
+### `mini_prompt_injector.py`
+Acts as the **Decision Model Agent**. It intercepts messages and determines which MCP should be triggered.
 
-`mini_bridge/config/mcp_registry.json`
+**Environment variables:**
+```python
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://ollama:11434/api/chat")
+MCP_HUB_URL = os.getenv("MCP_HUB_URL", "http://host.docker.internal:4000")
+```
 
-```json
-{
-  "autoReload": true,
-  "servers": [
-    {
-      "id": "dummy",
-      "name": "Dummy MCP",
-      "url": "http://dummy-mcp:4200",
-      "type": "streamable",
-      "enabled": true
-    },
-    {
-      "id": "time",
-      "name": "Time MCP",
-      "url": "http://mcp-time:4210",
-      "type": "streamable",
-      "enabled": true
-    }
-  ]
+- `OLLAMA_URL` → your Ollama server (must end with `/api/chat`)
+- `MCP_HUB_URL` → internal URL for MCP-Hub access (same network)
+
+**Model configuration:**
+```python
+DECISION_MODEL = "gemma3:270m"
+ANSWER_MODEL   = "gemma3:12b"
+```
+- **Decision Model** → chooses the right MCP tool.
+- **Answer Model** → generates final reasoning and response.
+
+**System prompt:**  
+Customizable prompt automatically passed to the Answer Model.  
+Use it to define behavioral rules, tone, or response formatting.
+
+---
+
+### `mcp_hub.py`
+Central registry and router connecting all MCP servers.
+
+When adding a new MCP container, simply extend the `TOOLS` dictionary:
+
+```python
+TOOLS = {
+    "time": os.getenv("MCP_TIME_URL", "http://host.docker.internal:4210/"),
+    "weather": os.getenv("MCP_WEATHER_URL", "http://host.docker.internal:4220/"),
+    "docs": os.getenv("MCP_DOCS_URL", "http://host.docker.internal:4230/")
 }
 ```
 
----
-
-## 🧩 Available MCP Modules  
-
-| MCP | Description | Example call |
-|-----|--------------|--------------|
-| **Dummy-MCP** | Minimal test server, responds to `initialize`, `ping`, etc. | `POST /dummy` |
-| **MCP-Time** | Returns current UTC time | `tools/call → get_time` |
-
-Test manually:  
-```bash
-curl -X POST http://localhost:4100/time      -H "Content-Type: application/json"      -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"get_time"}}'
-```
-
-Response:  
-```json
-{"jsonrpc":"2.0","id":1,"result":{"message":"The current time is 18:42:10 UTC"}}
-```
+Each new entry adds a live MCP endpoint visible via `/list` and `/status`.
 
 ---
 
-## 🧩 Folder Structure  
+## 🧩 Dual-Model System
 
-```
-├── docker-compose.yml
-├── mini_bridge/
-│   ├── mini_bridge_v2.py
-│   ├── Dockerfile
-│   └── config/
-│       └── mcp_registry.json
-├── dummy_MCP/
-│   ├── dummy_mcp.py
-│   └── Dockerfile
-└── mcp_time/
-    ├── mcp_time.py
-    └── Dockerfile
-```
+| Layer | Model | Role | Description |
+|-------|--------|------|--------------|
+| 🧭 Decision Layer | Gemma 3 270M | Routing / Tool selection | Analyzes prompt context and decides which MCP to call |
+| 🧠 Main Layer | Gemma 3 12B / DeepSeek R1 8B | Reasoning / Response | Generates the final user-facing answer |
 
 ---
 
-## 🔒 Security  
+## 💡 Example Use Case
 
-Each MCP server runs in its **own container** on a private Docker network.  
-The bridge is the **only exposed interface** and accepts **JSON-RPC over HTTP** — nothing else.  
-
-- No direct container access from AnythingLLM  
-- No Docker-in-Docker  
-- No shell or file system commands  
-- Safe, stateless JSON-based communication only  
+> “How late is it?” → AnythingLLM → mini-bridge → Decision-Agent → MCP-Time → Response returned via Main Model.
 
 ---
 
-## 🧾 License  
+## 🧱 Future Modules
 
-**MIT License**  
-Feel free to use, fork, and build upon this project.  
-See the full [LICENSE](./LICENSE) file for details.  
+You can easily extend the system with more MCPs:
+- `mcp-weather` → fetch local weather data  
+- `mcp-docs` → handle document search  
+- `mcp-audio` → transcribe or process voice inputs  
 
----
-
-## 💬 Development Note  
-
-I’ll keep improving this project as my own independent solution.  
-If the **AnythingLLM** team finds the idea useful, feel free to build on it or integrate parts of it.  
-
-As of now, tool output is still returned in a raw format instead of a fully formatted chat reply — once that’s refined, the public release will follow.  
+Each additional MCP only needs:
+1. Its own small FastAPI container.
+2. Entry in `mcp_registry.json` or `mcp_hub.py`.
+3. Network label in `docker-compose.yml`.
 
 ---
 
-## 🌟 Credits  
+## 🧰 Credits & Notes
 
-Created by **Danny**  
-Built with ❤️ using FastAPI, Docker, and curiosity.
+Built by **Danny** (2025) as a local AnythingLLM extension for modular AI experimentation.  
+Inspired by Claude’s MCP design, but built entirely for local, offline use.
+
+---
+
+📄 *For documentation or updates, visit the project’s GitHub page.*
