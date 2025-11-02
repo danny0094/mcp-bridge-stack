@@ -1,0 +1,13 @@
+{
+    "id": "26ccb6b4-6247-4725-b02a-de0b99454c7f",
+    "url": "file:///app/collector/hotdir/mini_bridge.py",
+    "title": "mini_bridge.py",
+    "docAuthor": "Unknown",
+    "description": "Unknown",
+    "docSource": "a text file uploaded by the user.",
+    "chunkSource": "",
+    "published": "11/1/2025, 8:12:43 PM",
+    "wordCount": 150,
+    "pageContent": "import json\nfrom fastapi import FastAPI, Request, Response\nimport httpx\nimport os\nimport logging\n\napp = FastAPI()\nlogging.basicConfig(level=logging.INFO)\n\nDUMMY_MCP_URL = os.getenv(\"DUMMY_MCP_URL\", \"http://dummy-mcp:4200\")\n\n@app.post(\"/\")\nasync def handle_request(request: Request):\n    data = await request.json()\n    logging.info(f\"[Mini-Bridge] Received POST: {json.dumps(data)}\")\n\n    # leite Request an Dummy-MCP weiter:\n    async with httpx.AsyncClient() as client:\n        response = await client.post(\"http://dummy-mcp:4200\", json=data)\n        response_data = response.json()\n\n    logging.info(f\"[Mini-Bridge] Forwarding response: {json.dumps(response_data)}\")\n\n    # Keine \"message\"-Keys hinzufügen oder verändern!\n    return Response(content=json.dumps(response_data), media_type=\"application/json\")\n\n\n@app.get(\"/manifest.json\")\nasync def manifest():\n    return {\n        \"name\": \"Mini-Bridge\",\n        \"version\": \"0.2\",\n        \"description\": \"Pass-through proxy for AnythingLLM MCP test\"\n    }\n\nif __name__ == \"__main__\":\n    import uvicorn\n    uvicorn.run(app, host=\"0.0.0.0\", port=4100)\n",
+    "token_count_estimate": 278
+}

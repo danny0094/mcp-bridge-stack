@@ -1,0 +1,102 @@
+version: "3.9"
+
+services:
+  anythingllm:
+    image: mintplexlabs/anythingllm
+    container_name: anythingllm
+    ports:
+      - "3001:3001"
+    networks:
+      - test-net
+    volumes:
+      - ./anythingllm_data:/app/server/storage
+      - ./anythingllm_data/plugins/anythingllm_mcp_servers.json:/app/server/storage/plugins/anythingllm_mcp_servers.json
+    environment:
+      - STORAGE_DIR=/app/server/storage
+      - DEBUG_MPC=1
+      - LOG_LEVEL=debug
+    depends_on:
+      - mini-bridge
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3001"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  mini-bridge:
+    build: ./mini_bridge     # Pfad zum Ordner mit mini_bridge_v2.py + config/
+    image: mini-bridge:latest
+    container_name: mini-bridge
+    networks:
+      - test-net
+    ports:
+      - "4100:4100"
+    depends_on:
+      - dummy-mcp
+    environment:
+      - DUMMY_MCP_URL=http://dummy-mcp:4200
+    volumes:
+     - ./mini_bridge/config:/app/config
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4100/manifest.json"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  dummy-mcp:
+    build: ./dummy_MCP       # Pfad zu deinem dummy_mcp.py
+    container_name: dummy-mcp
+    networks:
+      - test-net
+    ports:
+      - "4200:4200"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4200"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+
+  mcp-time:
+    build: ./mcp_time
+    image: mcp-time:latest
+    container_name: mcp-time
+    networks:
+      - test-net
+    ports:
+      - "4210:4210"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4210"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  prompt-injector:
+      build: ./prompt_injector
+      container_name: prompt_injector
+      restart: unless-stopped
+      networks:
+      - test-net
+      environment:
+      - OLLAMA_URL=http://192.168.0.224:11434/api/chat
+      - MCP_BRIDGE_URL=http://host.docker.internal:4210/
+      - MCP_HUB_URL=http://mcp-hub:4000
+      ports:
+      - "11434:11434"
+
+  mcp-hub:
+    build: ./mcp_hub
+    container_name: mcp-hub
+    restart: unless-stopped
+    ports:
+      - "4000:4000"
+    environment:
+      - MCP_TIME_URL=http://host.docker.internal:4210/
+      - MCP_WEATHER_URL=http://host.docker.internal:4220/
+      - MCP_DOCS_URL=http://host.docker.internal:4230/
+    networks:
+      - test-net
+
+networks:
+  test-net:
+    driver: bridge

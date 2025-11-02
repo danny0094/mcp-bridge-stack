@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "bridge": {
+      "displayName": "Mini Bridge",
+      "description": "Internal proxy to Dummy MCP",
+      "url": "http://mini-bridge:4100",
+      "type": "streamable",
+      "autoStart": true
+    }
+  }
+}
