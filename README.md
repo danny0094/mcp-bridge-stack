@@ -52,8 +52,8 @@ Docker Network: test-net
 ## ⚙️ Quick Setup  
 
 ```bash
-git clone https://github.com/yourname/anythingllm-mcp-http-bridge.git
-cd anythingllm-mcp-http-bridge
+git clone https://github.com/yourname/mcp-bridge-stack.git
+cd mcp-bridge-stack
 docker compose up --build
 ```
 
