@@ -4,6 +4,15 @@ It provides a single, secure HTTP access point while keeping every MCP fully san
 
 ---
 
+Installation:
+
+`git clone https://github.com/danny0094/mcp-bridge-stack
+cd mcp-bridge-stack
+docker compose up -d
+docker ps
+`
+
+
 ## 🚀 Overview
 
 This framework extends AnythingLLM with a **Claude-like local MCP environment**, built entirely with Docker containers.
